@@ -7,6 +7,7 @@ from app.models import Statement, Transaction, User, FinancialBehaviorProfile
 from app.agents.statement_parsing import ParserRegistry
 from app.agents.statement_explainability import explain_statement
 from app.agents.behavioral_profiling import update_profile
+from app.agents.cash_flow_forecast import forecast_available_funds
 from app.agents.interest_engine import compute_interest_breakdown
 from app.llm.client import get_llm_client, LLMClient
 
@@ -147,3 +148,19 @@ async def update_risk_tolerance(update_data: RiskToleranceUpdate, session: Sessi
     session.commit()
     session.refresh(profile)
     return profile
+
+from datetime import date
+from typing import List
+from fastapi import Query
+
+@app.get("/cashflow/forecast/{user_id}")
+async def get_cashflow_forecast(
+    user_id: int, 
+    candidate_dates: List[date] = Query(...), 
+    session: Session = Depends(get_session)
+):
+    try:
+        forecast = forecast_available_funds(user_id, candidate_dates, session)
+        return forecast
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
