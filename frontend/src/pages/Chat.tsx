@@ -55,13 +55,13 @@ export default function Chat() {
   };
 
   return (
-    <div className="flex flex-col h-screen max-h-screen bg-slate-950 p-6">
+    <div className="flex flex-col h-[calc(100vh-2rem)] p-8 max-w-5xl mx-auto">
       <header className="mb-6 flex-shrink-0">
-        <h1 className="text-3xl font-bold text-white tracking-tight">AI Advisor</h1>
-        <p className="text-slate-400">Ask questions strictly about your financial data.</p>
+        <h1 className="text-4xl font-bold text-slate-900 dark:text-white tracking-tight transition-colors">AI Advisor</h1>
+        <p className="text-slate-600 dark:text-slate-400 text-lg transition-colors">Ask questions strictly about your financial data.</p>
       </header>
 
-      <div className="flex-1 overflow-hidden bg-slate-900 border border-slate-800 rounded-3xl flex flex-col relative shadow-2xl">
+      <div className="flex-1 overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl flex flex-col relative shadow-xl shadow-slate-200/50 dark:shadow-none transition-colors">
         {/* Glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-indigo-500/5 blur-[100px] pointer-events-none"></div>
 
@@ -69,18 +69,18 @@ export default function Chat() {
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex gap-4 max-w-3xl ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg ${
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${
                 msg.role === 'user' 
                   ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white' 
-                  : 'bg-slate-800 border border-slate-700 text-indigo-400'
+                  : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400'
               }`}>
                 {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
               </div>
               
-              <div className={`p-4 rounded-2xl ${
+              <div className={`p-4 rounded-2xl shadow-sm ${
                 msg.role === 'user'
                   ? 'bg-indigo-600 text-white rounded-tr-none'
-                  : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-tl-none'
+                  : 'bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none'
               }`}>
                 <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
               </div>
@@ -89,13 +89,13 @@ export default function Chat() {
           
           {isLoading && (
             <div className="flex gap-4 max-w-3xl">
-              <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 text-indigo-400 flex items-center justify-center flex-shrink-0 shadow-lg">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 shadow-sm">
                 <Loader2 size={20} className="animate-spin" />
               </div>
-              <div className="p-4 rounded-2xl bg-slate-800 border border-slate-700 text-slate-400 rounded-tl-none flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-slate-500 animate-bounce" style={{animationDelay: '0ms'}}></span>
-                <span className="w-2 h-2 rounded-full bg-slate-500 animate-bounce" style={{animationDelay: '150ms'}}></span>
-                <span className="w-2 h-2 rounded-full bg-slate-500 animate-bounce" style={{animationDelay: '300ms'}}></span>
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-slate-400 rounded-tl-none flex items-center gap-2 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" style={{animationDelay: '0ms'}}></span>
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" style={{animationDelay: '150ms'}}></span>
+                <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" style={{animationDelay: '300ms'}}></span>
               </div>
             </div>
           )}
@@ -103,20 +103,20 @@ export default function Chat() {
         </div>
 
         {/* Input */}
-        <div className="p-4 bg-slate-900 border-t border-slate-800 z-10">
+        <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-10 transition-colors">
           <form onSubmit={handleSubmit} className="flex gap-3 max-w-4xl mx-auto">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask about your minimum payment, or why the deposit is recommended..."
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow"
+              className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-5 py-3.5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow shadow-sm"
               disabled={isLoading}
             />
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white p-3 rounded-xl transition-colors shadow-lg shadow-indigo-600/20 flex items-center justify-center"
+              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white p-3.5 rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center"
             >
               <Send size={20} />
             </button>
