@@ -23,7 +23,7 @@ We have provided a `vercel.json` to handle client-side routing.
 
 1. Create an account at [Vercel.com](https://vercel.com/).
 2. Click **Add New > Project** and select your GitHub repository.
-3. Vercel will automatically detect the Vite framework.
+3. **IMPORTANT**: In the "Build and Output Settings" or project settings, change the **Root Directory** to `frontend`. Vercel will then automatically detect the Vite framework.
 4. **Important Environment Variables**:
    - Before clicking Deploy, expand "Environment Variables".
    - Add `VITE_API_BASE_URL` and set its value to your newly deployed Render backend URL (e.g., `https://depositguide-backend.onrender.com`).
