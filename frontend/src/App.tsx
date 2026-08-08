@@ -1,14 +1,77 @@
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, FileText, CreditCard } from 'lucide-react';
+import React, { useState } from 'react';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { LayoutDashboard, MessageSquare, FileText, CreditCard, LogOut } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Chat from './pages/Chat';
+import Login from './pages/Login';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 function Statements() {
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const { token } = useAuth();
+  
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || !token) return;
+    
+    setLoading(true);
+    setMessage('');
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('issuing_bank', 'Chase'); // default for prototype
+    
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE}/statements/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      
+      if (!res.ok) throw new Error('Upload failed');
+      
+      setMessage('Statement uploaded successfully! Go to Dashboard to see insights.');
+      setFile(null);
+    } catch (err: any) {
+      setMessage(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-8">
-      <h2 className="text-3xl font-bold mb-6 text-white">Statements</h2>
-      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700/50 shadow-xl backdrop-blur-sm">
-        <p className="text-slate-300">Your uploaded statements will appear here. Backend processing is currently driving the main dashboard.</p>
+      <h2 className="text-3xl font-bold mb-6 text-white">Upload Statement</h2>
+      <div className="bg-slate-800 rounded-xl p-8 border border-slate-700/50 shadow-xl backdrop-blur-sm max-w-xl">
+        <form onSubmit={handleUpload} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-slate-400 mb-2">Statement PDF</label>
+            <input 
+              type="file" 
+              accept=".pdf"
+              onChange={e => setFile(e.target.files?.[0] || null)}
+              className="block w-full text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-500/10 file:text-indigo-400 hover:file:bg-indigo-500/20 transition-colors"
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={!file || loading}
+            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-all shadow-lg"
+          >
+            {loading ? 'Uploading...' : 'Upload & Analyze'}
+          </button>
+          
+          {message && (
+            <div className={`p-4 rounded-lg text-sm ${message.startsWith('Error') ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+              {message}
+            </div>
+          )}
+        </form>
       </div>
     </div>
   );
@@ -57,16 +120,17 @@ function Layout({ children }: { children: React.ReactNode }) {
         </ul>
         
         <div className="mt-auto z-10">
-          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-inner">
-                JD
+                <CreditCard size={18} />
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-200">John Doe</p>
+                <p className="text-sm font-medium text-slate-200">User Account</p>
                 <p className="text-xs text-slate-500">Premium Member</p>
               </div>
             </div>
+            <LogoutButton />
           </div>
         </div>
       </nav>
@@ -80,18 +144,39 @@ function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function LogoutButton() {
+  const { logout } = useAuth();
+  return (
+    <button 
+      onClick={logout}
+      className="text-slate-400 hover:text-rose-400 p-2 rounded-lg hover:bg-slate-700/50 transition-colors"
+      title="Log out"
+    >
+      <LogOut size={18} />
+    </button>
+  );
+}
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <Layout>{children}</Layout>;
+}
+
 function App() {
   return (
-    <BrowserRouter>
-      <Layout>
+    <AuthProvider>
+      <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/statements" element={<Statements />} />
-          <Route path="/chat" element={<Chat />} />
+          <Route path="/login" element={<Login />} />
+          
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/statements" element={<ProtectedRoute><Statements /></ProtectedRoute>} />
+          <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         </Routes>
-      </Layout>
-    </BrowserRouter>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

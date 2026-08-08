@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingDown, AlertCircle, Calendar, CreditCard, Loader2, FileText } from 'lucide-react';
+import { TrendingDown, AlertCircle, Calendar, CreditCard, Loader2, FileText, UploadCloud } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface DashboardData {
   statement_summary: {
@@ -30,10 +31,20 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const { token } = useAuth();
+
   useEffect(() => {
+    if (!token) return;
     const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-    fetch(`${API_BASE}/dashboard/1`)
+    fetch(`${API_BASE}/dashboard`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
       .then(res => {
+        if (res.status === 404) {
+          throw new Error('empty_state');
+        }
         if (!res.ok) throw new Error('Failed to load dashboard data');
         return res.json();
       })
@@ -45,7 +56,7 @@ export default function Dashboard() {
         setError(err.message);
         setLoading(false);
       });
-  }, []);
+  }, [token]);
 
   if (loading) {
     return (
@@ -53,6 +64,26 @@ export default function Dashboard() {
         <div className="flex flex-col items-center gap-4 text-indigo-400">
           <Loader2 className="animate-spin" size={48} />
           <p className="text-lg font-medium animate-pulse">Analyzing your finances...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error === 'empty_state') {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <div className="bg-slate-800/60 border border-slate-700/50 backdrop-blur-xl p-10 rounded-3xl max-w-lg text-center shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+          <div className="p-4 bg-slate-900/80 inline-block rounded-2xl mb-6 shadow-inner">
+            <UploadCloud size={48} className="text-indigo-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-4">Welcome to DepositGuide</h2>
+          <p className="text-slate-400 mb-8 leading-relaxed">
+            Upload your first credit card statement to generate AI-powered insights, profile your financial behavior, and discover the smartest deposit schedule.
+          </p>
+          <a href="/statements" className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-medium py-3 px-6 rounded-xl shadow-lg shadow-indigo-500/25 transition-all">
+            Upload Statement
+          </a>
         </div>
       </div>
     );
