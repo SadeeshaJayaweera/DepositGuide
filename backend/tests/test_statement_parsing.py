@@ -93,5 +93,6 @@ def test_upload_statement_endpoint(client: TestClient, session: Session):
     assert db_statement.purchase_apr == 0.28
     
     # Verify transactions in DB
-    db_txs = session.query(Transaction).filter(Transaction.statement_id == statement_id).all()
+    from sqlmodel import select
+    db_txs = session.exec(select(Transaction).where(Transaction.statement_id == statement_id)).all()
     assert len(db_txs) == 3

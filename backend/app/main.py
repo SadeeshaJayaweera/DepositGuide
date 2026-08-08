@@ -4,6 +4,9 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.models import Statement, Transaction, User
 from app.agents.statement_parsing import ParserRegistry
+from app.agents.statement_explainability import explain_statement
+from app.agents.interest_engine import compute_interest_breakdown
+from app.llm.client import get_llm_client, LLMClient
 
 app = FastAPI(title="DepositGuide API")
 
@@ -74,3 +77,30 @@ async def upload_statement(
     session.commit()
 
     return {"message": "Success", "statement_id": statement.id, "transactions_count": len(parsed.transactions)}
+
+@app.get("/statements/{statement_id}/explain")
+async def explain_statement_endpoint(
+    statement_id: int,
+    language: str = "en",
+    session: Session = Depends(get_session),
+    llm_client: LLMClient = Depends(get_llm_client)
+):
+    statement = session.get(Statement, statement_id)
+    if not statement:
+        raise HTTPException(status_code=404, detail="Statement not found")
+
+    transactions = session.exec(select(Transaction).where(Transaction.statement_id == statement_id)).all()
+    
+    interest_breakdown = compute_interest_breakdown(statement)
+    
+    try:
+        explanation = explain_statement(
+            statement=statement,
+            transactions=transactions,
+            interest_breakdown=interest_breakdown,
+            llm_client=llm_client,
+            language=language
+        )
+        return explanation.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
