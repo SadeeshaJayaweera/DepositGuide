@@ -9,6 +9,7 @@ from app.agents.statement_explainability import explain_statement
 from app.agents.behavioral_profiling import update_profile
 from app.agents.cash_flow_forecast import forecast_available_funds
 from app.agents.deposit_recommendation import recommend_deposit_schedule
+from app.agents.conversational_query import answer_question
 from app.agents.interest_engine import compute_interest_breakdown
 from app.llm.client import get_llm_client, LLMClient
 
@@ -25,6 +26,9 @@ app.add_middleware(
 class RiskToleranceUpdate(BaseModel):
     user_id: int
     risk_tolerance: str
+
+class ChatRequest(BaseModel):
+    question: str
 
 @app.get("/health")
 def health_check():
@@ -210,4 +214,79 @@ async def generate_recommendation(
         "projected_interest": rec.projected_interest,
         "baseline_interest": rec.baseline_interest,
         "savings_summary": savings_summary
+    }
+
+@app.post("/chat/{user_id}")
+async def chat_endpoint(
+    user_id: int, 
+    request: ChatRequest, 
+    session: Session = Depends(get_session),
+    llm_client: LLMClient = Depends(get_llm_client)
+):
+    answer = answer_question(user_id, request.question, session, llm_client)
+    return {"answer": answer}
+
+@app.get("/dashboard/{user_id}")
+async def get_dashboard_data(
+    user_id: int, 
+    session: Session = Depends(get_session)
+):
+    # Aggregator endpoint for the frontend
+    statement = session.exec(
+        select(Statement).where(Statement.user_id == user_id).order_by(Statement.id.desc())
+    ).first()
+    
+    if not statement:
+        raise HTTPException(status_code=404, detail="No statements found")
+        
+    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == user_id)).first()
+    
+    # We won't re-run explain_statement dynamically here (it takes LLM time). 
+    # In a real app we'd persist the explanation. For now, we'll return a stub or we could call it if FakeLLM.
+    # Let's return a static list of explanations to simulate what the frontend would get from DB.
+    explanations = [
+        {"line_item_name": "Purchase Balance", "plain_language_explanation": "This is the total amount you owe from regular purchases."},
+        {"line_item_name": "Minimum Payment", "plain_language_explanation": "This is the absolute least you must pay to avoid penalties."}
+    ]
+    
+    recommendation = session.exec(
+        select(DepositRecommendation).where(DepositRecommendation.statement_id == statement.id).order_by(DepositRecommendation.id.desc())
+    ).first()
+    
+    rec_data = None
+    if recommendation:
+        schedule = json.loads(recommendation.schedule_json)
+        schedule_strs = [f"LKR {amt:,.2f} on {d}" for d, amt in schedule.items()]
+        schedule_summary = " and ".join(schedule_strs)
+        if recommendation.projected_interest < recommendation.baseline_interest:
+            reduction_pct = ((recommendation.baseline_interest - recommendation.projected_interest) / recommendation.baseline_interest) * 100
+            savings_summary = (
+                f"Depositing {schedule_summary} is projected to reduce this cycle's "
+                f"interest by {reduction_pct:.0f}%, from LKR {recommendation.baseline_interest:,.2f} to LKR {recommendation.projected_interest:,.2f}"
+            )
+        else:
+            savings_summary = "No interest savings found over baseline."
+            
+        rec_data = {
+            "schedule": schedule,
+            "projected_interest": recommendation.projected_interest,
+            "baseline_interest": recommendation.baseline_interest,
+            "savings_summary": savings_summary
+        }
+        
+    # Low-value subscriptions stub (Day 6 feature)
+    low_value_subs = [
+        {"name": "Streaming Service A", "amount": 1500.0, "reason": "You haven't used this in 3 months."},
+        {"name": "Gym Membership", "amount": 5000.0, "reason": "Flagged as potentially unused based on average behavior."}
+    ]
+
+    return {
+        "statement_summary": {
+            "balance": statement.purchase_balance,
+            "due_date": statement.due_date,
+            "minimum_payment": statement.minimum_payment
+        },
+        "explanations": explanations,
+        "recommendation": rec_data,
+        "low_value_subscriptions": low_value_subs
     }
