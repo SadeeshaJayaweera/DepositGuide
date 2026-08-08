@@ -1,9 +1,20 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlmodel import Session, select
+from datetime import date, timedelta
+import json
+import os
+from dotenv import load_dotenv
+
+from google.oauth2 import id_token
+from google.auth.transport import requests
+
+load_dotenv()
+
 from app.db import get_session
-from app.models import Statement, Transaction, User, FinancialBehaviorProfile
+from app.models import Statement, Transaction, User, FinancialBehaviorProfile, DepositRecommendation
 from app.agents.statement_parsing import ParserRegistry
 from app.agents.statement_explainability import explain_statement
 from app.agents.behavioral_profiling import update_profile
@@ -12,6 +23,7 @@ from app.agents.deposit_recommendation import recommend_deposit_schedule
 from app.agents.conversational_query import answer_question
 from app.agents.interest_engine import compute_interest_breakdown
 from app.llm.client import get_llm_client, LLMClient
+from app.auth import get_password_hash, verify_password, create_access_token, get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 
 app = FastAPI(title="DepositGuide API")
 
@@ -23,8 +35,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class GoogleAuthRequest(BaseModel):
+    token: str
+
 class RiskToleranceUpdate(BaseModel):
-    user_id: int
     risk_tolerance: str
 
 class ChatRequest(BaseModel):
@@ -34,11 +56,73 @@ class ChatRequest(BaseModel):
 def health_check():
     return {"status": "ok"}
 
+@app.post("/auth/register", response_model=Token)
+async def register(user_data: UserCreate, session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == user_data.email)).first()
+    if user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = get_password_hash(user_data.password)
+    new_user = User(email=user_data.email, hashed_password=hashed_password)
+    session.add(new_user)
+    session.commit()
+    session.refresh(new_user)
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": new_user.email}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/google", response_model=Token)
+async def google_auth(request: GoogleAuthRequest, session: Session = Depends(get_session)):
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Google Client ID not configured")
+        
+    try:
+        # Verify the Google ID token
+        idinfo = id_token.verify_oauth2_token(request.token, requests.Request(), client_id)
+        email = idinfo.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Google account has no email")
+            
+        # Look up or create user
+        user = session.exec(select(User).where(User.email == email)).first()
+        if not user:
+            # Create user with an unusable password hash
+            user = User(email=email, hashed_password="google_oauth_no_password")
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            
+        # Issue our own JWT
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.email}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
 @app.post("/statements/upload")
 async def upload_statement(
     file: UploadFile = File(...),
     issuing_bank: str = Form(...),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         parser = ParserRegistry.get_parser(issuing_bank)
@@ -51,17 +135,9 @@ async def upload_statement(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse statement: {str(e)}")
 
-    # Get or create a default user for testing
-    user = session.exec(select(User)).first()
-    if not user:
-        user = User(email="test@example.com")
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-
     # Save statement
     statement = Statement(
-        user_id=user.id,
+        user_id=current_user.id,
         issuing_bank=parsed.issuing_bank,
         statement_date=parsed.statement_date,
         due_date=parsed.due_date,
@@ -95,10 +171,11 @@ async def explain_statement_endpoint(
     statement_id: int,
     language: str = "en",
     session: Session = Depends(get_session),
-    llm_client: LLMClient = Depends(get_llm_client)
+    llm_client: LLMClient = Depends(get_llm_client),
+    current_user: User = Depends(get_current_user)
 ):
     statement = session.get(Statement, statement_id)
-    if not statement:
+    if not statement or statement.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Statement not found")
 
     transactions = session.exec(select(Transaction).where(Transaction.statement_id == statement_id)).all()
@@ -117,29 +194,34 @@ async def explain_statement_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/profile/refresh/{user_id}")
-async def refresh_profile(user_id: int, session: Session = Depends(get_session)):
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    profile = update_profile(user_id, session)
+@app.post("/profile/refresh")
+async def refresh_profile(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    profile = update_profile(current_user.id, session)
     return profile
 
-@app.get("/profile/{user_id}")
-async def get_profile(user_id: int, session: Session = Depends(get_session)):
-    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == user_id)).first()
+@app.get("/profile")
+async def get_profile(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == current_user.id)).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     return profile
 
 @app.patch("/profile")
-async def update_risk_tolerance(update_data: RiskToleranceUpdate, session: Session = Depends(get_session)):
-    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == update_data.user_id)).first()
+async def update_risk_tolerance(
+    update_data: RiskToleranceUpdate, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == current_user.id)).first()
     if not profile:
-        # Create a stub profile to hold the risk tolerance if it doesn't exist
         profile = FinancialBehaviorProfile(
-            user_id=update_data.user_id,
+            user_id=current_user.id,
             salary_cycle_day=1,
             avg_discretionary_spend=0.0,
             repayment_adherence_score=0.5,
@@ -154,45 +236,23 @@ async def update_risk_tolerance(update_data: RiskToleranceUpdate, session: Sessi
     session.refresh(profile)
     return profile
 
-from datetime import date
-from typing import List
-from fastapi import Query
-
-@app.get("/cashflow/forecast/{user_id}")
-async def get_cashflow_forecast(
-    user_id: int, 
-    candidate_dates: List[date] = Query(...), 
-    session: Session = Depends(get_session)
-):
-    try:
-        forecast = forecast_available_funds(user_id, candidate_dates, session)
-        return forecast
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-from datetime import timedelta
-import json
-
 @app.post("/recommendations/{statement_id}")
 async def generate_recommendation(
     statement_id: int, 
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ):
     statement = session.get(Statement, statement_id)
-    if not statement:
+    if not statement or statement.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Statement not found")
         
-    user_id = statement.user_id
-    
-    # Generate candidate dates between statement_date and due_date
     candidate_dates = []
     current = statement.statement_date
     while current <= statement.due_date:
         candidate_dates.append(current)
         current += timedelta(days=1)
         
-    forecast = forecast_available_funds(user_id, candidate_dates, session, start_date=statement.statement_date)
-    
+    forecast = forecast_available_funds(current_user.id, candidate_dates, session, start_date=statement.statement_date)
     rec = recommend_deposit_schedule(statement, forecast, session)
     
     schedule = json.loads(rec.schedule_json)
@@ -216,34 +276,30 @@ async def generate_recommendation(
         "savings_summary": savings_summary
     }
 
-@app.post("/chat/{user_id}")
+@app.post("/chat")
 async def chat_endpoint(
-    user_id: int, 
     request: ChatRequest, 
     session: Session = Depends(get_session),
-    llm_client: LLMClient = Depends(get_llm_client)
+    llm_client: LLMClient = Depends(get_llm_client),
+    current_user: User = Depends(get_current_user)
 ):
-    answer = answer_question(user_id, request.question, session, llm_client)
+    answer = answer_question(current_user.id, request.question, session, llm_client)
     return {"answer": answer}
 
-@app.get("/dashboard/{user_id}")
+@app.get("/dashboard")
 async def get_dashboard_data(
-    user_id: int, 
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ):
-    # Aggregator endpoint for the frontend
     statement = session.exec(
-        select(Statement).where(Statement.user_id == user_id).order_by(Statement.id.desc())
+        select(Statement).where(Statement.user_id == current_user.id).order_by(Statement.id.desc())
     ).first()
     
     if not statement:
         raise HTTPException(status_code=404, detail="No statements found")
         
-    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == user_id)).first()
+    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == current_user.id)).first()
     
-    # We won't re-run explain_statement dynamically here (it takes LLM time). 
-    # In a real app we'd persist the explanation. For now, we'll return a stub or we could call it if FakeLLM.
-    # Let's return a static list of explanations to simulate what the frontend would get from DB.
     explanations = [
         {"line_item_name": "Purchase Balance", "plain_language_explanation": "This is the total amount you owe from regular purchases."},
         {"line_item_name": "Minimum Payment", "plain_language_explanation": "This is the absolute least you must pay to avoid penalties."}
@@ -274,7 +330,6 @@ async def get_dashboard_data(
             "savings_summary": savings_summary
         }
         
-    # Low-value subscriptions stub (Day 6 feature)
     low_value_subs = [
         {"name": "Streaming Service A", "amount": 1500.0, "reason": "You haven't used this in 3 months."},
         {"name": "Gym Membership", "amount": 5000.0, "reason": "Flagged as potentially unused based on average behavior."}
