@@ -1,10 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlmodel import Session, select
 from app.db import get_session
-from app.models import Statement, Transaction, User
+from app.models import Statement, Transaction, User, FinancialBehaviorProfile
 from app.agents.statement_parsing import ParserRegistry
 from app.agents.statement_explainability import explain_statement
+from app.agents.behavioral_profiling import update_profile
 from app.agents.interest_engine import compute_interest_breakdown
 from app.llm.client import get_llm_client, LLMClient
 
@@ -17,6 +19,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class RiskToleranceUpdate(BaseModel):
+    user_id: int
+    risk_tolerance: str
 
 @app.get("/health")
 def health_check():
@@ -104,3 +110,40 @@ async def explain_statement_endpoint(
         return explanation.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/profile/refresh/{user_id}")
+async def refresh_profile(user_id: int, session: Session = Depends(get_session)):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    profile = update_profile(user_id, session)
+    return profile
+
+@app.get("/profile/{user_id}")
+async def get_profile(user_id: int, session: Session = Depends(get_session)):
+    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == user_id)).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return profile
+
+@app.patch("/profile")
+async def update_risk_tolerance(update_data: RiskToleranceUpdate, session: Session = Depends(get_session)):
+    profile = session.exec(select(FinancialBehaviorProfile).where(FinancialBehaviorProfile.user_id == update_data.user_id)).first()
+    if not profile:
+        # Create a stub profile to hold the risk tolerance if it doesn't exist
+        profile = FinancialBehaviorProfile(
+            user_id=update_data.user_id,
+            salary_cycle_day=1,
+            avg_discretionary_spend=0.0,
+            repayment_adherence_score=0.5,
+            risk_tolerance=update_data.risk_tolerance
+        )
+        session.add(profile)
+    else:
+        profile.risk_tolerance = update_data.risk_tolerance
+        session.add(profile)
+        
+    session.commit()
+    session.refresh(profile)
+    return profile
