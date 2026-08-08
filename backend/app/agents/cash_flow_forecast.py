@@ -45,7 +45,7 @@ def _get_last_salary_amount(user_id: int, session: Session) -> float:
     return 5000.0
 
 
-def forecast_available_funds(user_id: int, candidate_dates: List[date], session: Session) -> Dict[date, float]:
+def forecast_available_funds(user_id: int, candidate_dates: List[date], session: Session, start_date: date = None) -> Dict[date, float]:
     """
     Estimates funds likely available for the given candidate dates.
     
@@ -71,7 +71,8 @@ def forecast_available_funds(user_id: int, candidate_dates: List[date], session:
     if not profile:
         return {d: 0.0 for d in candidate_dates}
         
-    start_date = datetime.date.today()
+    if start_date is None:
+        start_date = datetime.date.today()
     max_date = max(candidate_dates)
     
     if max_date < start_date:

@@ -8,6 +8,7 @@ from app.agents.statement_parsing import ParserRegistry
 from app.agents.statement_explainability import explain_statement
 from app.agents.behavioral_profiling import update_profile
 from app.agents.cash_flow_forecast import forecast_available_funds
+from app.agents.deposit_recommendation import recommend_deposit_schedule
 from app.agents.interest_engine import compute_interest_breakdown
 from app.llm.client import get_llm_client, LLMClient
 
@@ -164,3 +165,49 @@ async def get_cashflow_forecast(
         return forecast
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from datetime import timedelta
+import json
+
+@app.post("/recommendations/{statement_id}")
+async def generate_recommendation(
+    statement_id: int, 
+    session: Session = Depends(get_session)
+):
+    statement = session.get(Statement, statement_id)
+    if not statement:
+        raise HTTPException(status_code=404, detail="Statement not found")
+        
+    user_id = statement.user_id
+    
+    # Generate candidate dates between statement_date and due_date
+    candidate_dates = []
+    current = statement.statement_date
+    while current <= statement.due_date:
+        candidate_dates.append(current)
+        current += timedelta(days=1)
+        
+    forecast = forecast_available_funds(user_id, candidate_dates, session, start_date=statement.statement_date)
+    
+    rec = recommend_deposit_schedule(statement, forecast, session)
+    
+    schedule = json.loads(rec.schedule_json)
+    schedule_strs = [f"LKR {amt:,.2f} on {d}" for d, amt in schedule.items()]
+    schedule_summary = " and ".join(schedule_strs)
+    
+    if rec.projected_interest < rec.baseline_interest:
+        reduction_pct = ((rec.baseline_interest - rec.projected_interest) / rec.baseline_interest) * 100
+        savings_summary = (
+            f"Depositing {schedule_summary} is projected to reduce this cycle's "
+            f"interest by {reduction_pct:.0f}%, from LKR {rec.baseline_interest:,.2f} to LKR {rec.projected_interest:,.2f}"
+        )
+    else:
+        savings_summary = "No interest savings found over baseline."
+        
+    return {
+        "recommendation_id": rec.id,
+        "schedule": schedule,
+        "projected_interest": rec.projected_interest,
+        "baseline_interest": rec.baseline_interest,
+        "savings_summary": savings_summary
+    }
