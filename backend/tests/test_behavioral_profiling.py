@@ -5,6 +5,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
+from app.auth import get_current_user
 from app.db import get_session
 from app.models import User, Statement, Transaction, FinancialBehaviorProfile
 from app.agents.behavioral_profiling import update_profile
@@ -90,8 +91,11 @@ def session_fixture():
 def client_fixture(session: Session):
     def get_session_override():
         return session
+    def get_current_user_override():
+        return session.get(User, 1)
 
     app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
@@ -109,7 +113,7 @@ def test_update_profile_logic(session: Session):
     assert profile.risk_tolerance == "moderate"
 
 def test_refresh_profile_endpoint(client: TestClient):
-    response = client.post("/profile/refresh/1")
+    response = client.post("/profile/refresh")
     assert response.status_code == 200
     data = response.json()
     assert data["salary_cycle_day"] == 15
@@ -117,9 +121,9 @@ def test_refresh_profile_endpoint(client: TestClient):
 
 def test_get_profile_endpoint(client: TestClient):
     # Ensure it exists
-    client.post("/profile/refresh/1")
+    client.post("/profile/refresh")
     
-    response = client.get("/profile/1")
+    response = client.get("/profile")
     assert response.status_code == 200
     data = response.json()
     assert data["salary_cycle_day"] == 15
@@ -132,7 +136,7 @@ def test_patch_risk_tolerance_endpoint(client: TestClient):
     assert data["risk_tolerance"] == "high"
     
     # Then refresh profile, risk_tolerance should be preserved
-    refresh_response = client.post("/profile/refresh/1")
+    refresh_response = client.post("/profile/refresh")
     assert refresh_response.status_code == 200
     data = refresh_response.json()
     assert data["risk_tolerance"] == "high"

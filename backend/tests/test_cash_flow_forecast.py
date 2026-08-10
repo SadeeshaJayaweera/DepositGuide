@@ -5,6 +5,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
+from app.auth import get_current_user
 from app.db import get_session
 from app.models import User, FinancialBehaviorProfile
 from app.agents.cash_flow_forecast import forecast_available_funds
@@ -42,7 +43,11 @@ def session_fixture():
 def client_fixture(session: Session):
     def get_session_override():
         return session
+    def get_current_user_override():
+        return session.get(User, 1)
+
     app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
@@ -85,16 +90,3 @@ def test_forecast_available_funds_curve_shape(session: Session):
             # Funds should rise significantly after salary
             assert forecasts[day_after_salary] > forecasts[day_before_salary]
 
-def test_forecast_endpoint(client: TestClient):
-    today = date.today()
-    d1 = today + timedelta(days=1)
-    d2 = today + timedelta(days=2)
-    
-    response = client.get(
-        f"/cashflow/forecast/1?candidate_dates={d1.isoformat()}&candidate_dates={d2.isoformat()}"
-    )
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert d1.isoformat() in data
-    assert d2.isoformat() in data

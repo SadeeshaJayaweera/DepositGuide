@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.main import app
+from app.auth import get_current_user
 from app.db import get_session
 from app.models import Statement, Transaction, User
 from app.agents.statement_explainability import explain_statement
@@ -61,12 +62,13 @@ def fake_llm_fixture():
 def client_fixture(session: Session, fake_llm: FakeLLMClient):
     def get_session_override():
         return session
-    
     def get_llm_client_override():
         return fake_llm
-
+    def get_current_user_override():
+        return session.get(User, 1)
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_llm_client] = get_llm_client_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()

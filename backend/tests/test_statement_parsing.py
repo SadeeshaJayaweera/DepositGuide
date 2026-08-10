@@ -6,6 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
+from app.auth import get_current_user
 from app.db import get_session
 from app.models import Statement, Transaction, User
 from app.agents.statement_parsing import ParserRegistry, ParsedStatement
@@ -32,8 +33,11 @@ def session_fixture():
 def client_fixture(session: Session):
     def get_session_override():
         return session
+    def get_current_user_override():
+        return session.get(User, 1)
 
     app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()

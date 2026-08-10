@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 import json
 
 from app.main import app
+from app.auth import get_current_user
 from app.db import get_session
 from app.models import User, Statement, FinancialBehaviorProfile, DepositRecommendation
 from app.agents.conversational_query import answer_question
@@ -75,8 +76,11 @@ def client_fixture(session: Session, fake_llm: FakeLLMClient):
         return session
     def get_llm_client_override():
         return fake_llm
+    def get_current_user_override():
+        return session.get(User, 1)
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_llm_client] = get_llm_client_override
+    app.dependency_overrides[get_current_user] = get_current_user_override
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
@@ -101,6 +105,6 @@ def test_answer_question_context_injection(session: Session, fake_llm: FakeLLMCl
     assert "ONLY using the provided context" in fake_llm.last_system_prompt
 
 def test_chat_endpoint(client: TestClient, fake_llm: FakeLLMClient):
-    response = client.post("/chat/1", json={"question": "Can I afford this?"})
+    response = client.post("/chat", json={"question": "Can I afford this?"})
     assert response.status_code == 200
     assert response.json() == {"answer": "I am grounded in your context."}
