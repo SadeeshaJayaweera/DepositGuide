@@ -49,7 +49,7 @@ Baseline Interest: {interest_breakdown.get('baseline_interest')}
 Explain the balances, APRs, and what the projected interest means in simple terms.
 """
 
-    response_text = llm_client.generate(system_prompt=system_prompt, user_prompt=user_prompt)
+    response_text = llm_client.generate(system_prompt=system_prompt, user_prompt=user_prompt, response_mime_type="application/json")
     
     # Simple cleanup if the LLM wrapped it in markdown code blocks
     if response_text.startswith("```json"):
