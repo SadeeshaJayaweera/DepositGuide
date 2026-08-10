@@ -20,7 +20,7 @@ def session_fixture():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         # Create user
-        user = User(email="profile_test@example.com")
+        user = User(hashed_password="test", email="profile_test@example.com")
         session.add(user)
         session.commit()
         session.refresh(user)
