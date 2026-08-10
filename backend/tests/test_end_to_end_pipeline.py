@@ -25,7 +25,7 @@ def session_fixture():
     SQLModel.metadata.drop_all(engine)
 
 class E2EFakeLLMClient(FakeLLMClient):
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
+    def generate(self, system_prompt: str, user_prompt: str, response_mime_type: str | None = None) -> str:
         self.last_system_prompt = system_prompt
         self.last_user_prompt = user_prompt
         if "line_item_name" in system_prompt or "plain-language" in system_prompt:
