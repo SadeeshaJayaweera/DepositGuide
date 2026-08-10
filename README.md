@@ -21,7 +21,7 @@ Credit card statements are notoriously opaque, and the concept of "daily compoun
 
 DepositGuide solves this by identifying that **depositing funds earlier in the billing cycle strictly reduces the average daily balance**, thereby minimizing interest charges. The system autonomously reads your statement, analyzes your spending habits, and mathematically computes the perfect time to make partial deposits based on your actual liquidity constraints.
 
-## 🧠 The 9-Agent Architecture
+## 🧠 The 10-Agent Architecture
 
 DepositGuide is powered by a sophisticated multi-agent pipeline mirroring modern AI research architectures:
 
@@ -33,7 +33,8 @@ DepositGuide is powered by a sophisticated multi-agent pipeline mirroring modern
 6. **🤖 Deposit Recommendation Agent**: The optimization core. It executes a discrete search over feasible repayment schedules, constrained by the Cash-Flow Forecast, to find the exact two-installment schedule that minimizes interest.
 7. **📝 Statement Explainability Agent**: Translates complex credit card legalese into plain-language summaries using Large Language Models (LLMs).
 8. **💬 Conversational Query Agent**: A deeply grounded AI advisor that strictly answers user queries based on their internal financial context, refusing to hallucinate outside knowledge.
-9. **✨ Interactive Dashboard**: A glassmorphic, modern React interface displaying actionable insights, interactive Recharts comparisons, and the conversational AI.
+9. **💾 Semantic Memory Agent (RAG)**: Automatically extracts user facts from chat and stores them in a vector database, enabling the AI advisor to remember personal context continuously.
+10. **✨ Interactive Dashboard**: A glassmorphic, modern React interface displaying actionable insights, interactive Recharts comparisons, and the conversational AI.
 
 ---
 
