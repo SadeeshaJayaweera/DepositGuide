@@ -47,3 +47,10 @@ class DepositRecommendation(SQLModel, table=True):
     schedule_json: str
     projected_interest: float
     baseline_interest: float
+
+class UserMemory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    fact: str
+    embedding_json: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
